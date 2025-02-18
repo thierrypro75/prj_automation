@@ -115,6 +115,14 @@
 
         <div class="result-container">
             <h2 class="mb-4">Backlog généré</h2>
+            <div class="mb-3">
+                <button type="button" class="btn btn-primary export-btn" data-format="pdf">
+                    <i class="fas fa-file-pdf"></i> Exporter en PDF
+                </button>
+                <button type="button" class="btn btn-success export-btn" data-format="excel">
+                    <i class="fas fa-file-excel"></i> Exporter en Excel
+                </button>
+            </div>
             <div id="backlogResult" class="backlog-content"></div>
         </div>
     </div>
@@ -126,7 +134,8 @@
     <script src="https://kit.fontawesome.com/your-code.js" crossorigin="anonymous"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // Initialisation de Select2
+            let lastGeneratedData = null;
+
             $('#tech').select2({
                 placeholder: 'Sélectionnez les technologies',
                 allowClear: true,
@@ -138,6 +147,47 @@
             const resultContainer = document.querySelector('.result-container');
             const backlogResult = document.getElementById('backlogResult');
             const errorMessage = document.querySelector('.error-message');
+            const exportButtons = document.querySelectorAll('.export-btn');
+
+            // Gestionnaire d'événements pour les boutons d'export
+            exportButtons.forEach(button => {
+                button.addEventListener('click', async function() {
+                    if (!lastGeneratedData) {
+                        alert('Veuillez d\'abord générer un backlog');
+                        return;
+                    }
+
+                    const format = this.dataset.format;
+                    try {
+                        const response = await fetch(`/export-backlog/${format}`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(lastGeneratedData)
+                        });
+
+                        if (response.ok) {
+                            // Convertir la réponse en blob
+                            const blob = await response.blob();
+                            // Créer un lien de téléchargement
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `backlog_${new Date().toISOString().slice(0,19).replace(/[:]/g, '')}.${format}`;
+                            document.body.appendChild(a);
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+                            a.remove();
+                        } else {
+                            const error = await response.json();
+                            throw new Error(error.error || 'Erreur lors de l\'export');
+                        }
+                    } catch (error) {
+                        alert('Erreur lors de l\'export : ' + error.message);
+                    }
+                });
+            });
 
             form.addEventListener('submit', async function(e) {
                 e.preventDefault();
@@ -147,8 +197,6 @@
                 errorMessage.style.display = 'none';
 
                 const formData = new FormData(form);
-                
-                // Convertir le tableau des technologies en JSON
                 const techArray = $('#tech').val() || [];
                 formData.set('tech', JSON.stringify(techArray));
 
@@ -161,6 +209,7 @@
                     const data = await response.json();
 
                     if (response.ok) {
+                        lastGeneratedData = data; // Stocker les données générées
                         backlogResult.innerHTML = formatBacklog(data);
                         resultContainer.style.display = 'block';
                         form.reset();
@@ -170,6 +219,7 @@
                         errorMessage.style.display = 'block';
                     }
                 } catch (error) {
+                    console.error('Erreur lors de la génération du backlog:', error);
                     errorMessage.textContent = 'Une erreur est survenue lors de la génération du backlog';
                     errorMessage.style.display = 'block';
                 } finally {
@@ -178,10 +228,14 @@
             });
 
             function formatBacklog(data) {
+                console.log('Received data:', data);
                 let html = '<div class="backlog-formatted">';
+                let totalPoints = 0;
+                let totalJours = 0;
 
                 // Afficher l'analyse du CDC
                 if (data.analyse) {
+                    console.log('Processing analyse:', data.analyse);
                     const analyseLines = data.analyse.split('\n');
                     html += `
                         <div class="card mb-4">
@@ -211,6 +265,8 @@
 
                 // Traiter le backlog
                 if (data.backlog) {
+                    console.log('Raw backlog data:', data.backlog);
+                    
                     html += `
                         <div class="card mb-4">
                             <div class="card-header bg-success text-white">
@@ -230,15 +286,21 @@
                                     <tbody>`;
 
                     const backlogLines = data.backlog.split('\n');
+                    console.log('Backlog lines:', backlogLines);
+                    
                     let currentEpic = '';
-                    let totalPoints = 0;
-                    let totalJours = 0;
+                    let currentFeature = '';
+                    let epicPoints = 0;
+                    let epicJours = 0;
 
-                    backlogLines.forEach(line => {
+                    backlogLines.forEach((line, index) => {
                         line = line.trim();
                         if (!line) return;
+                        
+                        console.log(`Processing line ${index}:`, line);
 
                         if (line.includes('EPIC:')) {
+                            console.log('Found EPIC:', line);
                             const epicName = line.split('EPIC:')[1].trim();
                             currentEpic = epicName;
                             html += `
@@ -248,7 +310,9 @@
                                 </tr>`;
                         } 
                         else if (line.includes('FEATURE:')) {
+                            console.log('Found FEATURE:', line);
                             const featureName = line.split('FEATURE:')[1].trim();
+                            currentFeature = featureName;
                             html += `
                                 <tr class="table-secondary">
                                     <td><strong>FEATURE</strong></td>
@@ -257,11 +321,22 @@
                                 </tr>`;
                         }
                         else if (line.includes('STORY:')) {
-                            const storyMatch = line.match(/STORY:\s*(.*?)\s*\|\s*(\d+)\s*points?\s*\|\s*([\d.]+)\s*j\/h/);
+                            console.log('Found STORY:', line);
+                            
+                            // Pattern plus flexible pour capturer les stories
+                            const storyMatch = line.match(/STORY:\s*([^|]+)\|\s*(\d+)\s*\|\s*([\d.,]+)/);
                             if (storyMatch) {
                                 const [, story, points, jours] = storyMatch;
                                 const pointsNum = parseInt(points);
-                                const joursNum = parseFloat(jours);
+                                const joursNum = parseFloat(jours.replace(',', '.'));
+
+                                console.log('Matched story:', { 
+                                    story: story.trim(),
+                                    points: pointsNum,
+                                    jours: joursNum,
+                                    epic: currentEpic,
+                                    feature: currentFeature
+                                });
 
                                 totalPoints += pointsNum;
                                 totalJours += joursNum;
@@ -270,50 +345,61 @@
                                     <tr>
                                         <td>STORY</td>
                                         <td>${currentEpic}</td>
-                                        <td>${story}</td>
+                                        <td>${story.trim()}</td>
                                         <td class="text-center">${pointsNum}</td>
                                         <td class="text-center">${joursNum.toFixed(3)}</td>
                                     </tr>`;
+                            } else {
+                                console.log('No match for story line:', line);
+                                // Essayons un pattern alternatif
+                                const altStoryMatch = line.match(/STORY:\s*(.*?)\s*\|\s*(\d+)\s*\|\s*([\d.,]+)/);
+                                if (altStoryMatch) {
+                                    console.log('Matched with alternative pattern:', altStoryMatch);
+                                }
                             }
                         }
                     });
 
-                    html += `</tbody></table>`;
+                    html += `</tbody></table>
+                        </div>
+                    </div>`;
                 }
 
                 // Ajouter le résumé avec les métriques
-                html += `
-                    <div class="card mt-4">
-                        <div class="card-body">
-                            <h4 class="card-title">Métriques du Projet</h4>
-                            <table class="table table-bordered mb-0">
-                                <thead class="table-dark">
-                                    <tr>
-                                        <th>Métrique</th>
-                                        <th class="text-center">Valeur</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td>Total Points de Complexité</td>
-                                        <td class="text-center"><strong>${totalPoints} points</strong></td>
-                                    </tr>
-                                    <tr>
-                                        <td>Total Jours/Homme</td>
-                                        <td class="text-center"><strong>${totalJours.toFixed(3)} j/h</strong></td>
-                                    </tr>
-                                    <tr>
-                                        <td>Moyenne j/h par point</td>
-                                        <td class="text-center"><strong>${(totalJours/totalPoints).toFixed(3)} j/h/point</strong></td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>`;
+                if (data.backlog) {
+                    html += `
+                        <div class="card mt-4">
+                            <div class="card-body">
+                                <h4 class="card-title">Métriques du Projet</h4>
+                                <table class="table table-bordered mb-0">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>Métrique</th>
+                                            <th class="text-center">Valeur</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>Total Points de Complexité</td>
+                                            <td class="text-center"><strong>${totalPoints} points</strong></td>
+                                        </tr>
+                                        <tr>
+                                            <td>Total Jours/Homme</td>
+                                            <td class="text-center"><strong>${totalJours.toFixed(3)} j/h</strong></td>
+                                        </tr>
+                                        <tr>
+                                            <td>Moyenne j/h par point</td>
+                                            <td class="text-center"><strong>${totalPoints > 0 ? (totalJours/totalPoints).toFixed(3) : '0.000'} j/h/point</strong></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>`;
+                }
 
                 html += '</div>';
                 return html;
             }
         });
     </script>
-{% endblock %} 
+{% endblock %}

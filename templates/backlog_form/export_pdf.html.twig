@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Backlog - {{ date|date('d/m/Y') }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+        }
+        .date {
+            text-align: right;
+            margin-bottom: 20px;
+            font-style: italic;
+        }
+        h1 {
+            color: #2c3e50;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        h2 {
+            color: #34495e;
+            font-size: 20px;
+            margin-top: 30px;
+            margin-bottom: 15px;
+        }
+        .analyse-section {
+            margin-bottom: 40px;
+            white-space: pre-wrap;
+        }
+        .backlog-section {
+            margin-bottom: 40px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f5f5f5;
+        }
+        .epic-row {
+            background-color: #e3f2fd;
+            font-weight: bold;
+        }
+        .feature-row {
+            background-color: #f5f5f5;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            font-size: 12px;
+            color: #666;
+            border-top: 1px solid #ddd;
+            padding-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Backlog du Projet</h1>
+    </div>
+    
+    <div class="date">
+        Généré le {{ date|date('d/m/Y à H:i') }}
+    </div>
+
+    <div class="analyse-section">
+        <h2>Analyse du Cahier des Charges</h2>
+        {{ analyse|raw|nl2br }}
+    </div>
+
+    <div class="backlog-section">
+        <h2>Backlog Détaillé</h2>
+        {% set lines = backlog|split('\n') %}
+        {% set currentEpic = '' %}
+        {% set totalPoints = 0 %}
+        {% set totalJours = 0 %}
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>Epic/Feature</th>
+                    <th>Description</th>
+                    <th>Points</th>
+                    <th>Jours/Homme</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for line in lines %}
+                    {% if line matches '/EPIC:/' %}
+                        {% set epicName = line|replace({'EPIC:': ''})|trim %}
+                        {% set currentEpic = epicName %}
+                        <tr class="epic-row">
+                            <td>EPIC</td>
+                            <td colspan="4">{{ epicName }}</td>
+                        </tr>
+                    {% elseif line matches '/FEATURE:/' %}
+                        {% set featureName = line|replace({'FEATURE:': ''})|trim %}
+                        <tr class="feature-row">
+                            <td>FEATURE</td>
+                            <td>{{ currentEpic }}</td>
+                            <td colspan="3">{{ featureName }}</td>
+                        </tr>
+                    {% elseif line matches '/STORY:/' %}
+                        {% set storyParts = line|replace({'STORY:': ''})|split('|') %}
+                        {% if storyParts|length == 3 %}
+                            {% set points = storyParts[1]|trim %}
+                            {% set jours = storyParts[2]|trim %}
+                            {% set totalPoints = totalPoints + points %}
+                            {% set totalJours = totalJours + jours|replace({',': '.'})|number_format(3, '.', '') %}
+                            <tr>
+                                <td>STORY</td>
+                                <td>{{ currentEpic }}</td>
+                                <td>{{ storyParts[0]|trim }}</td>
+                                <td>{{ points }}</td>
+                                <td>{{ jours }}</td>
+                            </tr>
+                        {% endif %}
+                    {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Métrique</th>
+                    <th>Valeur</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Total Points de Complexité</td>
+                    <td>{{ totalPoints }} points</td>
+                </tr>
+                <tr>
+                    <td>Total Jours/Homme</td>
+                    <td>{{ totalJours|number_format(3, '.', ' ') }} j/h</td>
+                </tr>
+                <tr>
+                    <td>Moyenne j/h par point</td>
+                    <td>{{ (totalPoints > 0 ? totalJours/totalPoints : 0)|number_format(3, '.', ' ') }} j/h/point</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="footer">
+        Document généré automatiquement - Page [[page_nb]]/[[page_count]]
+    </div>
+</body>
+</html> 
