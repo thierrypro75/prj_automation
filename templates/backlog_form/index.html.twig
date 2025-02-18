@@ -1,0 +1,319 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Générateur de Backlog - Symfony{% endblock %}
+
+{% block stylesheets %}
+    {{ parent() }}
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <style>
+        .backlog-container {
+            max-width: 90%;
+            margin: 2rem auto;
+            padding: 1rem;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        .result-container {
+            margin-top: 2rem;
+            display: none;
+            background: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 8px;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 2rem 0;
+        }
+        .select2-container {
+            width: 100% !important;
+        }
+        .error-message {
+            color: #dc3545;
+            display: none;
+            margin-top: 1rem;
+        }
+        .analysis-content {
+            white-space: pre-wrap;
+            font-family: inherit;
+            font-size: 1rem;
+            line-height: 1.6;
+            padding: 1rem;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .analysis-content h4 {
+            color: #0d6efd;
+            margin-top: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        .analysis-content li {
+            margin-left: 1.5rem;
+            list-style-type: disc;
+        }
+        .backlog-table {
+            margin-top: 2rem;
+        }
+        .epic-row {
+            background-color: #cfe2ff !important;
+        }
+        .feature-row {
+            background-color: #e2e3e5 !important;
+        }
+    </style>
+{% endblock %}
+
+{% block body %}
+    <div class="backlog-container">
+        <h1 class="mb-4">Générateur de Backlog</h1>
+        
+        <div class="card">
+            <div class="card-body">
+                <form id="backlogForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="cdc" class="form-label">Cahier des charges (PDF)</label>
+                        <input type="file" class="form-control" id="cdc" name="cdc" accept=".pdf" required>
+                        <div class="form-text">Téléversez votre cahier des charges au format PDF</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tech" class="form-label">Technologies</label>
+                        <select class="form-control" id="tech" name="tech[]" multiple required>
+                            {% for key, value in technologies %}
+                                <option value="{{ key }}">{{ value }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Sélectionnez une ou plusieurs technologies</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="niveau_dev" class="form-label">Niveau des développeurs</label>
+                        <select class="form-control" id="niveau_dev" name="niveau_dev" required>
+                            <option value="">Sélectionnez un niveau</option>
+                            {% for key, value in niveaux %}
+                                <option value="{{ key }}">{{ value }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-cog"></i> Générer le backlog
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="loading">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Chargement...</span>
+            </div>
+            <p class="mt-2">Génération du backlog en cours...</p>
+        </div>
+
+        <div class="error-message alert alert-danger"></div>
+
+        <div class="result-container">
+            <h2 class="mb-4">Backlog généré</h2>
+            <div id="backlogResult" class="backlog-content"></div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block javascripts %}
+    {{ parent() }}
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="https://kit.fontawesome.com/your-code.js" crossorigin="anonymous"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialisation de Select2
+            $('#tech').select2({
+                placeholder: 'Sélectionnez les technologies',
+                allowClear: true,
+                theme: 'bootstrap-5'
+            });
+
+            const form = document.getElementById('backlogForm');
+            const loading = document.querySelector('.loading');
+            const resultContainer = document.querySelector('.result-container');
+            const backlogResult = document.getElementById('backlogResult');
+            const errorMessage = document.querySelector('.error-message');
+
+            form.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                loading.style.display = 'block';
+                resultContainer.style.display = 'none';
+                errorMessage.style.display = 'none';
+
+                const formData = new FormData(form);
+                
+                // Convertir le tableau des technologies en JSON
+                const techArray = $('#tech').val() || [];
+                formData.set('tech', JSON.stringify(techArray));
+
+                try {
+                    const response = await fetch('/generate-backlog', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        backlogResult.innerHTML = formatBacklog(data);
+                        resultContainer.style.display = 'block';
+                        form.reset();
+                        $('#tech').val(null).trigger('change');
+                    } else {
+                        errorMessage.textContent = data.error || 'Une erreur est survenue';
+                        errorMessage.style.display = 'block';
+                    }
+                } catch (error) {
+                    errorMessage.textContent = 'Une erreur est survenue lors de la génération du backlog';
+                    errorMessage.style.display = 'block';
+                } finally {
+                    loading.style.display = 'none';
+                }
+            });
+
+            function formatBacklog(data) {
+                let html = '<div class="backlog-formatted">';
+
+                // Afficher l'analyse du CDC
+                if (data.analyse) {
+                    const analyseLines = data.analyse.split('\n');
+                    html += `
+                        <div class="card mb-4">
+                            <div class="card-header bg-primary text-white">
+                                <h3 class="mb-0">Analyse du Cahier des Charges</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="analysis-content">`;
+                    
+                    analyseLines.forEach(line => {
+                        if (line.startsWith('###')) {
+                            html += `<h4 class="mt-4">${line.replace('###', '').trim()}</h4>`;
+                        } else if (line.startsWith('**')) {
+                            html += `<strong>${line.replace(/\*\*/g, '').trim()}</strong><br>`;
+                        } else if (line.startsWith('-')) {
+                            html += `<li>${line.substring(1).trim()}</li>`;
+                        } else {
+                            html += `${line}<br>`;
+                        }
+                    });
+
+                    html += `
+                                </div>
+                            </div>
+                        </div>`;
+                }
+
+                // Traiter le backlog
+                if (data.backlog) {
+                    html += `
+                        <div class="card mb-4">
+                            <div class="card-header bg-success text-white">
+                                <h3 class="mb-0">Backlog du Projet</h3>
+                            </div>
+                            <div class="card-body">
+                                <table class="table table-bordered table-striped">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th style="width: 10%">Type</th>
+                                            <th style="width: 15%">Epic/Feature</th>
+                                            <th style="width: 45%">Description</th>
+                                            <th style="width: 15%" class="text-center">Points</th>
+                                            <th style="width: 15%" class="text-center">Jours/Homme</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>`;
+
+                    const backlogLines = data.backlog.split('\n');
+                    let currentEpic = '';
+                    let totalPoints = 0;
+                    let totalJours = 0;
+
+                    backlogLines.forEach(line => {
+                        line = line.trim();
+                        if (!line) return;
+
+                        if (line.includes('EPIC:')) {
+                            const epicName = line.split('EPIC:')[1].trim();
+                            currentEpic = epicName;
+                            html += `
+                                <tr class="table-primary">
+                                    <td><strong>EPIC</strong></td>
+                                    <td colspan="4"><strong>${epicName}</strong></td>
+                                </tr>`;
+                        } 
+                        else if (line.includes('FEATURE:')) {
+                            const featureName = line.split('FEATURE:')[1].trim();
+                            html += `
+                                <tr class="table-secondary">
+                                    <td><strong>FEATURE</strong></td>
+                                    <td><strong>${currentEpic}</strong></td>
+                                    <td colspan="3"><strong>${featureName}</strong></td>
+                                </tr>`;
+                        }
+                        else if (line.includes('STORY:')) {
+                            const storyMatch = line.match(/STORY:\s*(.*?)\s*\|\s*(\d+)\s*points?\s*\|\s*([\d.]+)\s*j\/h/);
+                            if (storyMatch) {
+                                const [, story, points, jours] = storyMatch;
+                                const pointsNum = parseInt(points);
+                                const joursNum = parseFloat(jours);
+
+                                totalPoints += pointsNum;
+                                totalJours += joursNum;
+
+                                html += `
+                                    <tr>
+                                        <td>STORY</td>
+                                        <td>${currentEpic}</td>
+                                        <td>${story}</td>
+                                        <td class="text-center">${pointsNum}</td>
+                                        <td class="text-center">${joursNum.toFixed(3)}</td>
+                                    </tr>`;
+                            }
+                        }
+                    });
+
+                    html += `</tbody></table>`;
+                }
+
+                // Ajouter le résumé avec les métriques
+                html += `
+                    <div class="card mt-4">
+                        <div class="card-body">
+                            <h4 class="card-title">Métriques du Projet</h4>
+                            <table class="table table-bordered mb-0">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th>Métrique</th>
+                                        <th class="text-center">Valeur</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>Total Points de Complexité</td>
+                                        <td class="text-center"><strong>${totalPoints} points</strong></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Total Jours/Homme</td>
+                                        <td class="text-center"><strong>${totalJours.toFixed(3)} j/h</strong></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Moyenne j/h par point</td>
+                                        <td class="text-center"><strong>${(totalJours/totalPoints).toFixed(3)} j/h/point</strong></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>`;
+
+                html += '</div>';
+                return html;
+            }
+        });
+    </script>
+{% endblock %} 

@@ -1,0 +1,131 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Générateur de Backlog{% endblock %}
+
+{% block stylesheets %}
+    {{ parent() }}
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <style>
+        .backlog-container {
+            max-width: 90%;
+            margin: 2rem auto;
+            padding: 1rem;
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        .result-container {
+            margin-top: 2rem;
+            display: none;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 2rem 0;
+        }
+    </style>
+{% endblock %}
+
+{% block body %}
+    <div class="backlog-container">
+        <h1 class="mb-4">Générateur de Backlog</h1>
+        
+        <form id="backlogForm" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="cdc">Cahier des charges (PDF)</label>
+                <input type="file" class="form-control" id="cdc" name="cdc" accept=".pdf" required>
+            </div>
+
+            <div class="form-group">
+                <label for="tech">Technologies</label>
+                <select class="form-control" id="tech" name="tech[]" multiple required>
+                    {% for key, value in technologies %}
+                        <option value="{{ key }}">{{ value }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="niveau_dev">Niveau des développeurs</label>
+                <select class="form-control" id="niveau_dev" name="niveau_dev" required>
+                    <option value="">Sélectionnez un niveau</option>
+                    {% for key, value in niveaux %}
+                        <option value="{{ key }}">{{ value }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Générer le backlog</button>
+        </form>
+
+        <div class="loading">
+            <div class="spinner-border" role="status">
+                <span class="sr-only">Chargement...</span>
+            </div>
+            <p>Génération du backlog en cours...</p>
+        </div>
+
+        <div class="result-container">
+            <h2>Backlog généré</h2>
+            <div id="backlogResult"></div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block javascripts %}
+    {{ parent() }}
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            $('#tech').select2({
+                placeholder: 'Sélectionnez les technologies'
+            });
+
+            const form = document.getElementById('backlogForm');
+            const loading = document.querySelector('.loading');
+            const resultContainer = document.querySelector('.result-container');
+            const backlogResult = document.getElementById('backlogResult');
+
+            form.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                loading.style.display = 'block';
+                resultContainer.style.display = 'none';
+
+                const formData = new FormData(form);
+
+                try {
+                    const response = await fetch('/generate-backlog', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        backlogResult.innerHTML = formatBacklog(data.backlog);
+                        resultContainer.style.display = 'block';
+                    } else {
+                        alert(data.error || 'Une erreur est survenue');
+                    }
+                } catch (error) {
+                    alert('Une erreur est survenue lors de la génération du backlog');
+                } finally {
+                    loading.style.display = 'none';
+                }
+            });
+
+            function formatBacklog(backlog) {
+                // Convertir le texte brut en HTML formaté
+                return backlog.split('\n').map(line => {
+                    if (line.startsWith('#')) {
+                        return `<h3>${line.replace('#', '')}</h3>`;
+                    } else if (line.startsWith('-')) {
+                        return `<li>${line.replace('-', '')}</li>`;
+                    }
+                    return `<p>${line}</p>`;
+                }).join('');
+            }
+        });
+    </script>
+{% endblock %} 
